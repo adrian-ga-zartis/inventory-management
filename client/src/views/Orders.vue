@@ -75,6 +75,53 @@
         </div>
       </div>
     </div>
+
+    <!-- Submitted Restocking Orders section — loads independently, no filter dependency -->
+    <div class="card restocking-orders-card" style="margin-top: 1.5rem">
+      <div class="card-header">
+        <h3 class="card-title">Submitted Restocking Orders ({{ restockingOrders.length }})</h3>
+        <span v-if="restockingOrders.length > 0" class="badge info">
+          Total: ${{ restockingTotal.toLocaleString() }}
+        </span>
+      </div>
+      <div v-if="restockingOrders.length === 0" class="empty-restocking">
+        No restocking orders submitted yet. Use the Restocking tab to plan and place orders.
+      </div>
+      <div v-else class="table-container">
+        <table class="restocking-table">
+          <thead>
+            <tr>
+              <th>Order #</th>
+              <th>Items</th>
+              <th>Total Value</th>
+              <th>Submitted Date</th>
+              <th>Expected Delivery</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="order in restockingOrders" :key="order.id">
+              <td><strong>{{ order.order_number }}</strong></td>
+              <td>
+                <details class="items-details">
+                  <summary class="items-summary">{{ order.items.length }} item{{ order.items.length !== 1 ? 's' : '' }}</summary>
+                  <div class="items-dropdown">
+                    <div v-for="item in order.items" :key="item.sku" class="item-entry">
+                      <span class="item-name">{{ item.name }}</span>
+                      <span class="item-meta">Qty: {{ item.quantity }} @ ${{ item.unit_price }}</span>
+                    </div>
+                  </div>
+                </details>
+              </td>
+              <td><strong>${{ order.total_value.toLocaleString() }}</strong></td>
+              <td>{{ formatDate(order.order_date) }}</td>
+              <td>{{ formatDate(order.expected_delivery) }}</td>
+              <td><span class="badge info">{{ order.status }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -95,6 +142,12 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const orders = ref([])
+    const restockingOrders = ref([])
+
+    // Derived total value across all submitted restocking orders
+    const restockingTotal = computed(() => {
+      return Math.round(restockingOrders.value.reduce((sum, o) => sum + o.total_value, 0))
+    })
 
     // Use shared filters
     const {
@@ -153,13 +206,27 @@ export default {
       })
     }
 
-    onMounted(loadOrders)
+    const loadRestockingOrders = async () => {
+      try {
+        restockingOrders.value = await api.getRestockingOrders()
+      } catch (err) {
+        // Silently fail — restocking orders section is optional/additive
+        restockingOrders.value = []
+      }
+    }
+
+    onMounted(() => {
+      loadOrders()
+      loadRestockingOrders()
+    })
 
     return {
       t,
       loading,
       error,
       orders,
+      restockingOrders,
+      restockingTotal,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -276,4 +343,23 @@ export default {
   font-size: 0.813rem;
   color: #64748b;
 }
+
+.empty-restocking {
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.restocking-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.restocking-table th:nth-child(1) { width: 130px; }
+.restocking-table th:nth-child(2) { width: 150px; }
+.restocking-table th:nth-child(3) { width: 120px; }
+.restocking-table th:nth-child(4) { width: 140px; }
+.restocking-table th:nth-child(5) { width: 150px; }
+.restocking-table th:nth-child(6) { width: 110px; }
 </style>
