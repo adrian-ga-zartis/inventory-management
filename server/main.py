@@ -89,6 +89,27 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: Optional[float] = None
+    category: Optional[str] = None
+
+class RestockingOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_price: float
+    category: str
+
+class CreateRestockingOrderRequest(BaseModel):
+    items: List[RestockingOrderItem]
+
+class RestockingOrder(BaseModel):
+    id: str
+    order_number: str
+    items: List[RestockingOrderItem]
+    total_value: float
+    status: str
+    order_date: str
+    expected_delivery: str
 
 class BacklogItem(BaseModel):
     id: str
@@ -303,6 +324,57 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+# In-memory store for submitted restocking orders
+restocking_orders: List[dict] = []
+restocking_order_counter = [1]  # mutable container to allow increment in closure
+
+CATEGORY_LEAD_DAYS = {
+    "Circuit Boards": 21,
+    "Controllers": 21,
+    "Actuators": 18,
+    "Sensors": 14,
+    "Bearings": 10,
+    "Fasteners": 7,
+}
+
+@app.get("/api/restocking-orders", response_model=List[RestockingOrder])
+def get_restocking_orders():
+    """Get all submitted restocking orders"""
+    return restocking_orders
+
+@app.post("/api/restocking-orders", response_model=RestockingOrder, status_code=201)
+def create_restocking_order(request: CreateRestockingOrderRequest):
+    """Submit a new restocking order"""
+    from datetime import datetime, timedelta
+
+    if not request.items:
+        raise HTTPException(status_code=400, detail="Order must contain at least one item")
+
+    now = datetime.utcnow()
+    # Use the longest lead time among all items in the order
+    max_lead_days = max(
+        CATEGORY_LEAD_DAYS.get(item.category, 14) for item in request.items
+    )
+    expected = now + timedelta(days=max_lead_days)
+
+    order_id = str(restocking_order_counter[0])
+    order_number = f"RST-{now.year}-{restocking_order_counter[0]:04d}"
+    restocking_order_counter[0] += 1
+
+    total_value = sum(item.quantity * item.unit_price for item in request.items)
+
+    order = {
+        "id": order_id,
+        "order_number": order_number,
+        "items": [item.dict() for item in request.items],
+        "total_value": round(total_value, 2),
+        "status": "Submitted",
+        "order_date": now.strftime("%Y-%m-%dT%H:%M:%S"),
+        "expected_delivery": expected.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    restocking_orders.append(order)
+    return order
 
 if __name__ == "__main__":
     import uvicorn
